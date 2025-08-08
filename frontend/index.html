@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <title>Conway's Game of Life — WebSocket</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+        :root {
+            --bg: #111;
+            --accent: #00ff66;
+            --panel: #222;
+            --mono: "Courier New", Courier, monospace;
+        }
+
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            background: var(--bg);
+            color: var(--accent);
+            font-family: var(--mono);
+        }
+
+        .wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 10px;
+            padding: 12px;
+            height: 100%;
+            box-sizing: border-box;
+        }
+
+        .controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        button,
+        select {
+            background: var(--accent);
+            color: #111;
+            border: none;
+            padding: 8px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        button:hover,
+        select:hover {
+            filter: brightness(.95);
+        }
+
+        .panel {
+            background: var(--panel);
+            border: 2px solid var(--accent);
+            padding: 10px;
+            border-radius: 8px;
+            width: calc(100% - 32px);
+            max-width: 1500px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        #grid {
+            background: #000;
+            color: var(--accent);
+            padding: 8px;
+            border-radius: 6px;
+            font-family: var(--mono);
+            font-size: 10px;
+            line-height: 1;
+            white-space: pre;
+            overflow: auto;
+            flex: 1;
+        }
+
+        .status {
+            font-size: 13px;
+            color: var(--accent);
+        }
+
+        .right-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrap">
+        <div style="width:100%; max-width:1500px; display:flex; justify-content:space-between; align-items:center;">
+            <h2 style="margin:0">Conway's Game of Life</h2>
+            <div class="status" id="status">Connecting...</div>
+        </div>
+
+        <div class="controls">
+            <div>
+                <select id="resolution">
+                    <option value="80x24">80 x 24</option>
+                    <option value="120x30">120 x 30</option>
+                    <option value="170x42" selected>170 x 42</option>
+                    <option value="200x50">200 x 50</option>
+                </select>
+                <button id="applyRes">Apply</button>
+            </div>
+
+            
+
+            <div class="right-controls">
+                <button id="start">Start</button>
+                <button id="stop">Stop</button>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div id="grid">Connecting to server...</div>
+        </div>
+    </div>
+
+    <script>
+        const statusEl = document.getElementById('status');
+        const gridEl = document.getElementById('grid');
+        const resSelect = document.getElementById('resolution');
+        const applyResBtn = document.getElementById('applyRes');
+        const startBtn = document.getElementById('start');
+        const stopBtn = document.getElementById('stop');
+        
+
+        const socket = new WebSocket('ws://localhost:8080/ws');
+
+        socket.addEventListener('open', () => {
+            statusEl.textContent = 'Connected';
+            statusEl.style.color = '#00ff66';
+
+            // send an initial preferred resolution (you can change this)
+            const initial = resSelect.value.split('x').map(n => parseInt(n, 10));
+            socket.send(JSON.stringify({ type: 'resize', width: initial[0], height: initial[1] }));
+        });
+
+        socket.addEventListener('message', (evt) => {
+            gridEl.textContent = evt.data;
+            // keep scrolled to top-left ideally (no auto-scroll)
+            gridEl.scrollTop = 0;
+            gridEl.scrollLeft = 0;
+        });
+
+        socket.addEventListener('close', () => {
+            statusEl.textContent = 'Disconnected';
+            statusEl.style.color = '#ff4444';
+        });
+
+        socket.addEventListener('error', (e) => {
+            console.error('WS error', e);
+            statusEl.textContent = 'Error';
+            statusEl.style.color = '#ff4444';
+        });
+
+        applyResBtn.addEventListener('click', () => {
+            const [w, h] = resSelect.value.split('x').map(n => parseInt(n, 10));
+            socket.send(JSON.stringify({ type: 'resize', width: w, height: h }));
+        });
+
+        startBtn.addEventListener('click', () => socket.send('start'));
+        stopBtn.addEventListener('click', () => socket.send('stop'));
+
+        
+    </script>
+</body>
+
+</html>
