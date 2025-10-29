@@ -39,14 +39,16 @@ var (
 	tickerStop chan bool
 
 	// small limits to avoid runaway sizes
-	maxWidth  = 400
-	maxHeight = 200
+	maxWidth  = 1000
+	maxHeight = 400
 )
 
 func main() {
 	// create initial grid
 	initGrid()
 
+	fs := http.FileServer(http.Dir("./frontend"))
+	http.Handle("/", fs)
 	http.HandleFunc("/ws", handleConnections)
 	fmt.Println("Server started on :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))

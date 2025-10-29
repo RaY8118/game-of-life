@@ -140,7 +140,9 @@
         const stopBtn = document.getElementById('stop');
         
 
-        const socket = new WebSocket('ws://localhost:8080/ws');
+        const loc = window.location;
+        const protocol = loc.protocol === "https:" ? "wss:" : "ws:";
+        const socket = new WebSocket(`${protocol}//${loc.host}/ws`);
 
         socket.addEventListener('open', () => {
             statusEl.textContent = 'Connected';
