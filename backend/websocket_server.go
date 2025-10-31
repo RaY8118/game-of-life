@@ -18,6 +18,13 @@ type ClientMessage struct {
 	Width   int    `json:"width,omitempty"`
 	Height  int    `json:"height,omitempty"`
 	Pattern string `json:"pattern,omitempty"`
+	Speed   int    `json:"speed,omitempty"`
+}
+
+type GridMessage struct {
+	Grid       string `json:"grid"`
+	Generation int    `json:"generation"`
+	Population int    `json:"population"`
 }
 
 var (
@@ -37,6 +44,8 @@ var (
 	running    = false
 	ticker     *time.Ticker
 	tickerStop chan bool
+	speed      = 100 // milliseconds
+	generation = 0
 
 	// small limits to avoid runaway sizes
 	maxWidth  = 1000
@@ -47,7 +56,7 @@ func main() {
 	// create initial grid
 	initGrid()
 
-	fs := http.FileServer(http.Dir("./frontend"))
+	fs := http.FileServer(http.Dir("../frontend"))
 	http.Handle("/", fs)
 	http.HandleFunc("/ws", handleConnections)
 	fmt.Println("Server started on :8080")
@@ -69,7 +78,7 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 	clientsLock.Unlock()
 
 	// send initial state immediately
-	if err := ws.WriteMessage(websocket.TextMessage, []byte(getGridAsString())); err != nil {
+	if err := ws.WriteMessage(websocket.TextMessage, []byte(getGridMessage())); err != nil {
 		log.Println("write initial error:", err)
 		clientsLock.Lock()
 		delete(clients, ws)
@@ -108,6 +117,17 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 					hReq = maxHeight
 				}
 				applyResize(wReq, hReq)
+			case "pattern":
+				loadPattern(cm.Pattern)
+				broadcast(getGridMessage())
+			case "speed":
+				if cm.Speed > 0 && cm.Speed <= 1000 {
+					speed = cm.Speed
+					if running {
+						stopSimulation()
+						startSimulation()
+					}
+				}
 			default:
 				log.Println("Unknown JSON message type:", cm.Type)
 			}
@@ -141,7 +161,7 @@ func applyResize(wReq, hReq int) {
 	height = hReq
 	log.Printf("Resizing grid to %dx%d\n", width, height)
 	initGrid()
-	broadcast(getGridAsString())
+	broadcast(getGridMessage())
 	if wasRunning {
 		startSimulation()
 	}
@@ -149,14 +169,14 @@ func applyResize(wReq, hReq int) {
 
 // runSimulation is the ticker loop that updates and broadcasts.
 func runSimulation() {
-	ticker = time.NewTicker(100 * time.Millisecond)
+	ticker = time.NewTicker(time.Duration(speed) * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
 			updateGrid()
-			broadcast(getGridAsString())
+			broadcast(getGridMessage())
 		case <-tickerStop:
 			return
 		}
@@ -203,6 +223,17 @@ func broadcast(msg string) {
 	}
 }
 
+// getPopulation returns the number of live cells.
+func getPopulation() int {
+	count := 0
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			count += grid[y][x]
+		}
+	}
+	return count
+}
+
 // getGridAsString returns grid as a multi-line string of '█' and spaces.
 func getGridAsString() string {
 	var out string
@@ -217,6 +248,17 @@ func getGridAsString() string {
 		out += "\n"
 	}
 	return out
+}
+
+// getGridMessage returns the grid data as JSON.
+func getGridMessage() string {
+	msg := GridMessage{
+		Grid:       getGridAsString(),
+		Generation: generation,
+		Population: getPopulation(),
+	}
+	data, _ := json.Marshal(msg)
+	return string(data)
 }
 
 // updateGrid applies the Game of Life rules into a new grid.
@@ -234,6 +276,7 @@ func updateGrid() {
 		}
 	}
 	grid = newGrid
+	generation++
 }
 
 func countNeighbours(x, y int) int {
@@ -261,6 +304,77 @@ func initGrid() {
 		for x := 0; x < width; x++ {
 			if rand.Float64() < 0.2 {
 				grid[y][x] = 1
+			}
+		}
+	}
+	generation = 0
+}
+
+// clearGrid resets all cells to 0.
+func clearGrid() {
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			grid[y][x] = 0
+		}
+	}
+}
+
+// Pattern loading functions
+func loadGlider(x, y int) {
+	grid[y][x+1] = 1
+	grid[y+1][x+2] = 1
+	grid[y+2][x] = 1
+	grid[y+2][x+1] = 1
+	grid[y+2][x+2] = 1
+}
+
+func loadBlinker(x, y int) {
+	grid[y][x] = 1
+	grid[y][x+1] = 1
+	grid[y][x+2] = 1
+}
+
+func loadToad(x, y int) {
+	grid[y][x+1] = 1
+	grid[y][x+2] = 1
+	grid[y][x+3] = 1
+	grid[y+1][x] = 1
+	grid[y+1][x+1] = 1
+	grid[y+1][x+2] = 1
+}
+
+func loadBeacon(x, y int) {
+	grid[y][x] = 1
+	grid[y][x+1] = 1
+	grid[y+1][x] = 1
+	grid[y+1][x+1] = 1
+	grid[y+2][x+2] = 1
+	grid[y+2][x+3] = 1
+	grid[y+3][x+2] = 1
+	grid[y+3][x+3] = 1
+}
+
+// loadPattern loads the specified pattern at the center.
+func loadPattern(pattern string) {
+	clearGrid()
+	generation = 0
+	cx := width / 2
+	cy := height / 2
+	switch pattern {
+	case "glider":
+		loadGlider(cx-1, cy-1)
+	case "blinker":
+		loadBlinker(cx-1, cy)
+	case "toad":
+		loadToad(cx-2, cy-1)
+	case "beacon":
+		loadBeacon(cx-2, cy-2)
+	case "random":
+		for y := 0; y < height; y++ {
+			for x := 0; x < width; x++ {
+				if rand.Float64() < 0.2 {
+					grid[y][x] = 1
+				}
 			}
 		}
 	}
